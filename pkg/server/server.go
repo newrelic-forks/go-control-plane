@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"sync/atomic"
 
+	"github.com/golang/glog"
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
 	"google.golang.org/grpc/codes"
@@ -298,6 +299,7 @@ func (s *server) handler(stream stream, typeURL string) error {
 }
 
 func (s *server) StreamAggregatedResources(stream discovery.AggregatedDiscoveryService_StreamAggregatedResourcesServer) error {
+	glog.Info("StreamAggregatedResources")
 	app := stream.Context().Value("new_relic_application").(newrelic.Application)
 	txn := app.StartTransaction("StreamAggregatedResources", nil, nil)
 	defer txn.End()
@@ -309,6 +311,7 @@ func (s *server) StreamAggregatedResources(stream discovery.AggregatedDiscoveryS
 }
 
 func (s *server) StreamEndpoints(stream v2.EndpointDiscoveryService_StreamEndpointsServer) error {
+	glog.Info("StreamEndpoints")
 	app := stream.Context().Value("new_relic_application").(newrelic.Application)
 	txn := app.StartTransaction("StreamEndpoints", nil, nil)
 	defer txn.End()
@@ -320,6 +323,7 @@ func (s *server) StreamEndpoints(stream v2.EndpointDiscoveryService_StreamEndpoi
 }
 
 func (s *server) StreamClusters(stream v2.ClusterDiscoveryService_StreamClustersServer) error {
+	glog.Info("StreamClusters")
 	app := stream.Context().Value("new_relic_application").(newrelic.Application)
 	txn := app.StartTransaction("StreamClusters", nil, nil)
 	defer txn.End()
@@ -331,6 +335,7 @@ func (s *server) StreamClusters(stream v2.ClusterDiscoveryService_StreamClusters
 }
 
 func (s *server) StreamRoutes(stream v2.RouteDiscoveryService_StreamRoutesServer) error {
+	glog.Info("StreamRoutes")
 	app := stream.Context().Value("new_relic_application").(newrelic.Application)
 	txn := app.StartTransaction("StreamRoutes", nil, nil)
 	defer txn.End()
@@ -342,6 +347,7 @@ func (s *server) StreamRoutes(stream v2.RouteDiscoveryService_StreamRoutesServer
 }
 
 func (s *server) StreamListeners(stream v2.ListenerDiscoveryService_StreamListenersServer) error {
+	glog.Info("StreamListeners")
 	app := stream.Context().Value("new_relic_application").(newrelic.Application)
 	txn := app.StartTransaction("StreamListeners", nil, nil)
 	defer txn.End()
