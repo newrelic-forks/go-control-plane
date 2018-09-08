@@ -29,6 +29,7 @@ import (
 	"github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v2"
 	"github.com/envoyproxy/go-control-plane/pkg/cache"
+	"github.com/newrelic/go-agent"
 )
 
 // Server is a collection of handlers for streaming discovery requests.
@@ -297,71 +298,145 @@ func (s *server) handler(stream stream, typeURL string) error {
 }
 
 func (s *server) StreamAggregatedResources(stream discovery.AggregatedDiscoveryService_StreamAggregatedResourcesServer) error {
-	return s.handler(stream, cache.AnyType)
+	app := stream.Context().Value("new_relic_application").(newrelic.Application)
+	txn := app.StartTransaction("StreamAggregatedResources", nil, nil)
+	defer txn.End()
+	if err := s.handler(stream, cache.AnyType); err != nil {
+		txn.NoticeError(err)
+		return err
+	}
+	return nil
 }
 
 func (s *server) StreamEndpoints(stream v2.EndpointDiscoveryService_StreamEndpointsServer) error {
-	return s.handler(stream, cache.EndpointType)
+	app := stream.Context().Value("new_relic_application").(newrelic.Application)
+	txn := app.StartTransaction("StreamEndpoints", nil, nil)
+	defer txn.End()
+	if err := s.handler(stream, cache.AnyType); err != nil {
+		txn.NoticeError(err)
+		return err
+	}
+	return nil
 }
 
 func (s *server) StreamClusters(stream v2.ClusterDiscoveryService_StreamClustersServer) error {
-	return s.handler(stream, cache.ClusterType)
+	app := stream.Context().Value("new_relic_application").(newrelic.Application)
+	txn := app.StartTransaction("StreamClusters", nil, nil)
+	defer txn.End()
+	if err := s.handler(stream, cache.AnyType); err != nil {
+		txn.NoticeError(err)
+		return err
+	}
+	return nil
 }
 
 func (s *server) StreamRoutes(stream v2.RouteDiscoveryService_StreamRoutesServer) error {
-	return s.handler(stream, cache.RouteType)
+	app := stream.Context().Value("new_relic_application").(newrelic.Application)
+	txn := app.StartTransaction("StreamRoutes", nil, nil)
+	defer txn.End()
+	if err := s.handler(stream, cache.AnyType); err != nil {
+		txn.NoticeError(err)
+		return err
+	}
+	return nil
 }
 
 func (s *server) StreamListeners(stream v2.ListenerDiscoveryService_StreamListenersServer) error {
-	return s.handler(stream, cache.ListenerType)
+	app := stream.Context().Value("new_relic_application").(newrelic.Application)
+	txn := app.StartTransaction("StreamListeners", nil, nil)
+	defer txn.End()
+	if err := s.handler(stream, cache.AnyType); err != nil {
+		txn.NoticeError(err)
+		return err
+	}
+	return nil
 }
 
 // Fetch is the universal fetch method.
 func (s *server) Fetch(ctx context.Context, req *v2.DiscoveryRequest) (*v2.DiscoveryResponse, error) {
+	app := ctx.Value("new_relic_application").(newrelic.Application)
+	txn := app.StartTransaction("FetchEndpoints", nil, nil)
+	defer txn.End()
 	if s.callbacks != nil {
 		s.callbacks.OnFetchRequest(req)
 	}
 	resp, err := s.cache.Fetch(ctx, *req)
 	if err != nil {
+		txn.NoticeError(err)
 		return nil, err
 	}
 	out, err := createResponse(resp, req.TypeUrl)
 	if s.callbacks != nil {
 		s.callbacks.OnFetchResponse(req, out)
 	}
+	if err != nil {
+		txn.NoticeError(err error)
+	}
 	return out, err
 }
 
 func (s *server) FetchEndpoints(ctx context.Context, req *v2.DiscoveryRequest) (*v2.DiscoveryResponse, error) {
+	app := ctx.Value("new_relic_application").(newrelic.Application)
+	txn := app.StartTransaction("FetchEndpoints", nil, nil)
+	defer txn.End()
 	if req == nil {
 		return nil, status.Errorf(codes.Unavailable, "empty request")
 	}
 	req.TypeUrl = cache.EndpointType
-	return s.Fetch(ctx, req)
+	resp, err := s.Fetch(ctx, req)
+	if err != nil {
+		txn.NoticeError(err)
+		return nil, err
+	}
+	return resp, nil
 }
 
 func (s *server) FetchClusters(ctx context.Context, req *v2.DiscoveryRequest) (*v2.DiscoveryResponse, error) {
+	app := ctx.Value("new_relic_application").(newrelic.Application)
+	txn := app.StartTransaction("FetchClusters", nil, nil)
+	defer txn.End()
 	if req == nil {
 		return nil, status.Errorf(codes.Unavailable, "empty request")
 	}
 	req.TypeUrl = cache.ClusterType
-	return s.Fetch(ctx, req)
+	resp, err := s.Fetch(ctx, req)
+	if err != nil {
+		txn.NoticeError(err)
+		return nil, err
+	}
+	return resp, nil
 }
 
 func (s *server) FetchRoutes(ctx context.Context, req *v2.DiscoveryRequest) (*v2.DiscoveryResponse, error) {
+	app := ctx.Value("new_relic_application").(newrelic.Application)
+	txn := app.StartTransaction("FetchRoutes", nil, nil)
+	defer txn.End()
 	if req == nil {
 		return nil, status.Errorf(codes.Unavailable, "empty request")
 	}
 	req.TypeUrl = cache.RouteType
-	return s.Fetch(ctx, req)
+	resp, err := s.Fetch(ctx, req)
+	if err != nil {
+		txn.NoticeError(err)
+		return nil, err
+	}
+	return resp, nil
 }
 
 func (s *server) FetchListeners(ctx context.Context, req *v2.DiscoveryRequest) (*v2.DiscoveryResponse, error) {
+	app := ctx.Value("new_relic_application").(newrelic.Application)
+	txn := app.StartTransaction("FetchListeners", nil, nil)
+	defer txn.End()
 	if req == nil {
 		return nil, status.Errorf(codes.Unavailable, "empty request")
 	}
 	req.TypeUrl = cache.ListenerType
-	return s.Fetch(ctx, req)
+	resp, err := s.Fetch(ctx, req)
+	if err != nil {
+		txn.NoticeError(err)
+		return nil, err
+	}
+	return resp, nil
 }
 
 func (s *server) IncrementalAggregatedResources(_ discovery.AggregatedDiscoveryService_IncrementalAggregatedResourcesServer) error {
