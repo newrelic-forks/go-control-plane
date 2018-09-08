@@ -101,8 +101,7 @@ func GetResourceReferences(resources map[string]Resource) map[string]bool {
 					config := &hcm.HttpConnectionManager{}
 					if util.StructToMessage(filter.Config, config) == nil && config != nil {
 						if rds, ok := config.RouteSpecifier.(*hcm.HttpConnectionManager_Rds); ok && rds != nil && rds.Rds != nil {
-							rds.
-								out[rds.Rds.RouteConfigName] = true
+							out[rds.Rds.RouteConfigName] = true
 						}
 					}
 				}
