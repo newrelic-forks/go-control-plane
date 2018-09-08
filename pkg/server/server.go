@@ -21,7 +21,6 @@ import (
 	"strconv"
 	"sync/atomic"
 
-	"github.com/golang/glog"
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
 	"google.golang.org/grpc/codes"
@@ -138,7 +137,7 @@ func createResponse(resp *cache.Response, typeURL string) (*v2.DiscoveryResponse
 }
 
 // process handles a bi-di stream request
-func (s *server) process(stream stream, reqCh <-chan *v2.DiscoveryRequest, defaultTypeURL string) error {
+func (s *server) process(stream stream, reqCh <-chan *v2.DiscoveryRequest, defaultTypeURL string, n newrelic.Application) error {
 	// increment stream count
 	streamID := atomic.AddInt64(&s.streamCount, 1)
 
@@ -179,7 +178,10 @@ func (s *server) process(stream stream, reqCh <-chan *v2.DiscoveryRequest, defau
 		select {
 		// config watcher can send the requested resources types in any order
 		case resp, more := <-values.endpoints:
+			txn := n.StartTransaction("GRPC endpoints watch", nil, nil)
 			if !more {
+				txn.NoticeError(status.Errorf(codes.Unavailable, "endpoints watch failed"))
+				txn.End()
 				return status.Errorf(codes.Unavailable, "endpoints watch failed")
 			}
 			nonce, err := send(resp, cache.EndpointType)
@@ -187,9 +189,13 @@ func (s *server) process(stream stream, reqCh <-chan *v2.DiscoveryRequest, defau
 				return err
 			}
 			values.endpointNonce = nonce
+			txn.End()
 
 		case resp, more := <-values.clusters:
+			txn := n.StartTransaction("GRPC clusters watch", nil, nil)
 			if !more {
+				txn.NoticeError(status.Errorf(codes.Unavailable, "clusters watch failed"))
+				txn.End()
 				return status.Errorf(codes.Unavailable, "clusters watch failed")
 			}
 			nonce, err := send(resp, cache.ClusterType)
@@ -197,9 +203,13 @@ func (s *server) process(stream stream, reqCh <-chan *v2.DiscoveryRequest, defau
 				return err
 			}
 			values.clusterNonce = nonce
+			txn.End()
 
 		case resp, more := <-values.routes:
+			txn := n.StartTransaction("GRPC routes watch", nil, nil)
 			if !more {
+				txn.NoticeError(status.Errorf(codes.Unavailable, "routes watch failed"))
+				txn.End()
 				return status.Errorf(codes.Unavailable, "routes watch failed")
 			}
 			nonce, err := send(resp, cache.RouteType)
@@ -207,9 +217,13 @@ func (s *server) process(stream stream, reqCh <-chan *v2.DiscoveryRequest, defau
 				return err
 			}
 			values.routeNonce = nonce
+			txn.End()
 
 		case resp, more := <-values.listeners:
+			txn := n.StartTransaction("GRPC listeners watch", nil, nil)
 			if !more {
+				txn.NoticeError(status.Errorf(codes.Unavailable, "listeners watch failed"))
+				txn.End()
 				return status.Errorf(codes.Unavailable, "listeners watch failed")
 			}
 			nonce, err := send(resp, cache.ListenerType)
@@ -217,22 +231,29 @@ func (s *server) process(stream stream, reqCh <-chan *v2.DiscoveryRequest, defau
 				return err
 			}
 			values.listenerNonce = nonce
+			txn.End()
 
 		case req, more := <-reqCh:
+			txn := n.StartTransaction("GRPC stream request", nil, nil)
 			// input stream ended or errored out
 			if !more {
+				txn.End()
 				return nil
 			}
 			if req == nil {
+				txn.NoticeError(status.Errorf(codes.Unavailable, "empty request"))
+				txn.End()
 				return status.Errorf(codes.Unavailable, "empty request")
 			}
 
 			// nonces can be reused across streams; we verify nonce only if nonce is not initialized
 			nonce := req.GetResponseNonce()
 
+			txn.AddAttribute("type_url", req.TypeUrl)
 			// type URL is required for ADS but is implicit for xDS
 			if defaultTypeURL == cache.AnyType {
 				if req.TypeUrl == "" {
+					txn.NoticeError(status.Errorf(codes.InvalidArgument, "type URL is required for ADS"))
 					return status.Errorf(codes.InvalidArgument, "type URL is required for ADS")
 				}
 			} else if req.TypeUrl == "" {
@@ -266,12 +287,13 @@ func (s *server) process(stream stream, reqCh <-chan *v2.DiscoveryRequest, defau
 				}
 				values.listeners, values.listenerCancel = s.cache.CreateWatch(*req)
 			}
+			txn.End()
 		}
 	}
 }
 
 // handler converts a blocking read call to channels and initiates stream processing
-func (s *server) handler(stream stream, typeURL string) error {
+func (s *server) handler(stream stream, typeURL string, n newrelic.Application) error {
 	// a channel for receiving incoming requests
 	reqCh := make(chan *v2.DiscoveryRequest)
 	reqStop := int32(0)
@@ -289,7 +311,7 @@ func (s *server) handler(stream stream, typeURL string) error {
 		}
 	}()
 
-	err := s.process(stream, reqCh, typeURL)
+	err := s.process(stream, reqCh, typeURL, n)
 
 	// prevents writing to a closed channel if send failed on blocked recv
 	// TODO(kuat) figure out how to unblock recv through gRPC API
@@ -299,84 +321,42 @@ func (s *server) handler(stream stream, typeURL string) error {
 }
 
 func (s *server) StreamAggregatedResources(stream discovery.AggregatedDiscoveryService_StreamAggregatedResourcesServer) error {
-	glog.Info("StreamAggregatedResources")
-	app := stream.Context().Value("new_relic_application").(newrelic.Application)
-	txn := app.StartTransaction("StreamAggregatedResources", nil, nil)
-	defer txn.End()
-	if err := s.handler(stream, cache.AnyType); err != nil {
-		txn.NoticeError(err)
-		return err
-	}
-	return nil
+	n := stream.Context().Value("new_relic_application").(newrelic.Application)
+	return s.handler(stream, cache.AnyType, n)
 }
 
 func (s *server) StreamEndpoints(stream v2.EndpointDiscoveryService_StreamEndpointsServer) error {
-	glog.Info("StreamEndpoints")
-	app := stream.Context().Value("new_relic_application").(newrelic.Application)
-	txn := app.StartTransaction("StreamEndpoints", nil, nil)
-	defer txn.End()
-	if err := s.handler(stream, cache.AnyType); err != nil {
-		txn.NoticeError(err)
-		return err
-	}
-	return nil
+	n := stream.Context().Value("new_relic_application").(newrelic.Application)
+	return s.handler(stream, cache.AnyType, n)
 }
 
 func (s *server) StreamClusters(stream v2.ClusterDiscoveryService_StreamClustersServer) error {
-	glog.Info("StreamClusters")
-	app := stream.Context().Value("new_relic_application").(newrelic.Application)
-	txn := app.StartTransaction("StreamClusters", nil, nil)
-	defer txn.End()
-	if err := s.handler(stream, cache.AnyType); err != nil {
-		txn.NoticeError(err)
-		return err
-	}
-	return nil
+	n := stream.Context().Value("new_relic_application").(newrelic.Application)
+	return s.handler(stream, cache.AnyType, n)
 }
 
 func (s *server) StreamRoutes(stream v2.RouteDiscoveryService_StreamRoutesServer) error {
-	glog.Info("StreamRoutes")
-	app := stream.Context().Value("new_relic_application").(newrelic.Application)
-	txn := app.StartTransaction("StreamRoutes", nil, nil)
-	defer txn.End()
-	if err := s.handler(stream, cache.AnyType); err != nil {
-		txn.NoticeError(err)
-		return err
-	}
-	return nil
+	n := stream.Context().Value("new_relic_application").(newrelic.Application)
+	return s.handler(stream, cache.AnyType, n)
 }
 
 func (s *server) StreamListeners(stream v2.ListenerDiscoveryService_StreamListenersServer) error {
-	glog.Info("StreamListeners")
-	app := stream.Context().Value("new_relic_application").(newrelic.Application)
-	txn := app.StartTransaction("StreamListeners", nil, nil)
-	defer txn.End()
-	if err := s.handler(stream, cache.AnyType); err != nil {
-		txn.NoticeError(err)
-		return err
-	}
-	return nil
+	n := stream.Context().Value("new_relic_application").(newrelic.Application)
+	return s.handler(stream, cache.AnyType, n)
 }
 
 // Fetch is the universal fetch method.
 func (s *server) Fetch(ctx context.Context, req *v2.DiscoveryRequest) (*v2.DiscoveryResponse, error) {
-	app := ctx.Value("new_relic_application").(newrelic.Application)
-	txn := app.StartTransaction("FetchEndpoints", nil, nil)
-	defer txn.End()
 	if s.callbacks != nil {
 		s.callbacks.OnFetchRequest(req)
 	}
 	resp, err := s.cache.Fetch(ctx, *req)
 	if err != nil {
-		txn.NoticeError(err)
 		return nil, err
 	}
 	out, err := createResponse(resp, req.TypeUrl)
 	if s.callbacks != nil {
 		s.callbacks.OnFetchResponse(req, out)
-	}
-	if err != nil {
-		txn.NoticeError(err error)
 	}
 	return out, err
 }
